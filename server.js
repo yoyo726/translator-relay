@@ -1,7 +1,3 @@
-app.get("/", (req, res) => {
-  res.send("OK");
-});
-
 import express from "express";
 import fetch from "node-fetch";
 
@@ -17,11 +13,13 @@ app.get("/", (req, res) => {
 
 app.post("/translate", async (req, res) => {
   try {
-    if (req.headers.authorization !== `Bearer ${RELAY_SECRET}`) {
+    const auth = req.headers.authorization || "";
+
+    if (auth !== `Bearer ${RELAY_SECRET}`) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    if (!req.headers.authorization?.includes("Luna-JP")) {
+    if (!auth.includes("Luna-JP")) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -36,7 +34,7 @@ app.post("/translate", async (req, res) => {
       }
     ];
 
-    if (mode === "image") {
+    if (mode === "image" && input_image) {
       messages.push({
         role: "user",
         content: [
@@ -81,6 +79,7 @@ app.post("/translate", async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT, "0.0.0.0", () => {
-  console.log("running on", process.env.PORT);
+const port = process.env.PORT || 3000;
+app.listen(port, "0.0.0.0", () => {
+  console.log("running on", port);
 });
