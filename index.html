@@ -1,533 +1,95 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Luna 中日翻译器</title>
-  <style>
-    :root{
-      --bg1:#0f172a;
-      --bg2:#020617;
-      --card:rgba(255,255,255,.05);
-      --line:rgba(255,255,255,.08);
-      --text:#eff6ff;
-      --muted:#93c5fd;
-    }
-
-    *{
-      box-sizing:border-box;
-      -webkit-tap-highlight-color:transparent;
-    }
-
-    html,body{
-      height:100%;
-      margin:0;
-    }
-
-    body{
-      color:var(--text);
-      background:radial-gradient(circle at top, #1e3a8a 0%, var(--bg1) 36%, var(--bg2) 100%);
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC","Hiragino Sans","Yu Gothic","PingFang SC",sans-serif;
-    }
-
-    .app{
-      height:100%;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-      padding:env(safe-area-inset-top) 10px env(safe-area-inset-bottom) 10px;
-    }
-
-    .top{
-      display:grid;
-      grid-template-columns:1fr auto auto auto;
-      gap:8px;
-    }
-
-    .record,.camera,.translateBtn{
-      min-height:56px;
-      border:none;
-      border-radius:16px;
-      color:#fff;
-      font-size:18px;
-      font-weight:800;
-      box-shadow:0 10px 24px rgba(37,99,235,.22);
-    }
-
-    .record{
-      background:linear-gradient(180deg,#3b82f6,#2563eb);
-    }
-
-    .record.rec{
-      background:linear-gradient(180deg,#ef4444,#dc2626);
-    }
-
-    .camera,.translateBtn{
-      padding:0 12px;
-      background:rgba(255,255,255,.10);
-      font-size:15px;
-      white-space:nowrap;
-    }
-
-    .gear,.mini{
-      border:none;
-      border-radius:14px;
-      background:rgba(255,255,255,.08);
-      color:#fff;
-      font-size:14px;
-      font-weight:700;
-    }
-
-    .gear{
-      min-width:56px;
-    }
-
-    .panels{
-      flex:1;
-      min-height:0;
-      display:grid;
-      grid-template-rows:.72fr 1.28fr;
-      gap:8px;
-    }
-
-    .card{
-      min-height:0;
-      border:1px solid var(--line);
-      border-radius:20px;
-      background:var(--card);
-      backdrop-filter:blur(10px);
-      padding:10px;
-      display:flex;
-      flex-direction:column;
-    }
-
-    .head{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-      margin-bottom:6px;
-    }
-
-    .label{
-      font-size:14px;
-      color:var(--muted);
-      font-weight:700;
-      white-space:nowrap;
-    }
-
-    .actions{
-      display:flex;
-      gap:6px;
-    }
-
-    .mini{
-      padding:7px 10px;
-    }
-
-    .mini.primary{
-      background:linear-gradient(180deg,#22c55e,#16a34a);
-    }
-
-    .text{
-      flex:1;
-      min-height:0;
-      overflow:auto;
-      word-break:break-word;
-      line-height:1.34;
-    }
-
-    .src{
-      font-size:clamp(24px,4.8vw,40px);
-    }
-
-    .dst{
-      font-size:clamp(30px,5.6vw,54px);
-      font-weight:650;
-    }
-
-    .placeholder{
-      opacity:.34;
-    }
-
-    .sheet{
-      position:fixed;
-      inset:auto 0 0 0;
-      background:#08101f;
-      border-top-left-radius:22px;
-      border-top-right-radius:22px;
-      border-top:1px solid var(--line);
-      padding:12px 12px calc(env(safe-area-inset-bottom) + 12px);
-      display:none;
-      max-height:78vh;
-      overflow:auto;
-      z-index:1000;
-    }
-
-    .sheet.show{
-      display:block;
-    }
-
-    .field{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      margin:10px 0;
-    }
-
-    .field label{
-      font-size:13px;
-      color:#bfdbfe;
-    }
-
-    .field input{
-      width:100%;
-      background:rgba(255,255,255,.06);
-      border:1px solid var(--line);
-      color:#fff;
-      border-radius:14px;
-      padding:12px;
-      font-size:15px;
-    }
-
-    .row{
-      display:flex;
-      gap:8px;
-    }
-
-    .row>*{
-      flex:1;
-    }
-
-    .preview{
-      width:100%;
-      max-height:110px;
-      object-fit:contain;
-      border-radius:12px;
-      margin-top:8px;
-      display:none;
-      border:1px solid rgba(255,255,255,.08);
-      background:rgba(255,255,255,.03);
-    }
-
-    .manualInput{
-      width:100%;
-      min-height:88px;
-      background:rgba(255,255,255,.06);
-      border:1px solid var(--line);
-      color:#fff;
-      border-radius:14px;
-      padding:12px;
-      font-size:16px;
-      margin-top:8px;
-      resize:none;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Luna翻译器</title>
 </head>
-<body>
-  <div class="app">
-    <div class="top">
-      <button id="recordBtn" class="record">录音</button>
-      <button id="cameraBtn" class="camera">拍照</button>
-      <button id="translateBtn" class="translateBtn">翻译输入</button>
-      <button id="settingsBtn" class="gear">设置</button>
-    </div>
+<body style="background:#111;color:#fff;font-size:20px;padding:20px">
 
-    <input id="imageInput" type="file" accept="image/*" capture="environment" style="display:none" />
+<h2>录音</h2>
+<button id="recordBtn">开始录音</button>
 
-    <div class="panels">
-      <section class="card">
-        <div class="head">
-          <div class="label">识别结果</div>
-        </div>
-        <div id="srcText" class="text src placeholder">……</div>
-        <img id="preview" class="preview" alt="preview">
-        <textarea id="manualInput" class="manualInput" placeholder="也可以直接手动输入中文或日文"></textarea>
-      </section>
+<h3>识别结果</h3>
+<div id="src"></div>
 
-      <section class="card">
-        <div class="head">
-          <div class="label">翻译结果</div>
-          <div class="actions">
-            <button id="clearBtn" class="mini">清空</button>
-            <button id="speakBtn" class="mini primary">朗读</button>
-          </div>
-        </div>
-        <div id="dstText" class="text dst placeholder">……</div>
-      </section>
-    </div>
-  </div>
+<h3>翻译结果</h3>
+<div id="dst"></div>
 
-  <div id="sheet" class="sheet">
-    <div class="field">
-      <label>Relay URL</label>
-      <input id="relayUrl" placeholder="https://strong-magic-production-3439.up.railway.app" />
-    </div>
-    <div class="field">
-      <label>访问密钥（RELAY_SECRET）</label>
-      <input id="secret" type="password" placeholder="输入你的 relay secret" />
-    </div>
-    <div class="row">
-      <button id="saveBtn" class="mini primary">保存</button>
-      <button id="closeBtn" class="mini">关闭</button>
-    </div>
-  </div>
+<script>
+let mediaRecorder;
+let chunks = [];
 
-  <script>
-    (() => {
-      const $ = (s) => document.querySelector(s);
+const RELAY_URL = localStorage.getItem("url") || "";
+const SECRET = localStorage.getItem("key") || "";
 
-      const recordBtn = $("#recordBtn");
-      const cameraBtn = $("#cameraBtn");
-      const translateBtn = $("#translateBtn");
-      const settingsBtn = $("#settingsBtn");
-      const imageInput = $("#imageInput");
-      const srcText = $("#srcText");
-      const dstText = $("#dstText");
-      const clearBtn = $("#clearBtn");
-      const speakBtn = $("#speakBtn");
-      const preview = $("#preview");
-      const manualInput = $("#manualInput");
+document.getElementById("recordBtn").onclick = async () => {
 
-      const sheet = $("#sheet");
-      const relayUrl = $("#relayUrl");
-      const secret = $("#secret");
-      const saveBtn = $("#saveBtn");
-      const closeBtn = $("#closeBtn");
+  if (!mediaRecorder || mediaRecorder.state === "inactive") {
 
-      let mediaRecorder = null;
-      let audioChunks = [];
-      let lastTargetLang = "ja-JP";
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      function initSettings() {
-        relayUrl.value = localStorage.getItem("luna_relay_url") || "";
-        secret.value = localStorage.getItem("luna_relay_secret") || "";
-      }
+    mediaRecorder = new MediaRecorder(stream);
+    chunks = [];
 
-      function saveSettings() {
-        localStorage.setItem("luna_relay_url", relayUrl.value.trim());
-        localStorage.setItem("luna_relay_secret", secret.value.trim());
-      }
+    mediaRecorder.ondataavailable = e => chunks.push(e.data);
 
-      function setSource(text) {
-        srcText.textContent = text || "……";
-        srcText.classList.toggle("placeholder", !text);
-      }
+    mediaRecorder.onstop = async () => {
 
-      function setTarget(text, lang = "ja-JP") {
-        dstText.textContent = text || "……";
-        dstText.classList.toggle("placeholder", !text);
-        lastTargetLang = lang;
-      }
+      const blob = new Blob(chunks);
+      const base64 = await blobToBase64(blob);
 
-      function detectLangFromText(text) {
-        if (!text) return "ja-JP";
-        const hasKana = /[ぁ-んァ-ン]/.test(text);
-        return hasKana ? "ja-JP" : "zh-CN";
-      }
+      document.getElementById("src").innerText = "识别中...";
+      document.getElementById("dst").innerText = "";
 
-      function speak(text, lang) {
-        if (!text || text === "……" || !("speechSynthesis" in window)) return;
-        speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = lang || "ja-JP";
-        speechSynthesis.speak(u);
-      }
-
-      async function fetchJson(url, payload) {
-        const base = relayUrl.value.trim();
-        const sec = secret.value.trim();
-
-        if (!base) throw new Error("请先填写 Relay URL");
-        if (!sec) throw new Error("请先填写访问密钥");
-
-        const fullUrl = base.endsWith("/") ? base + url.replace(/^\//, "") : base + url;
-
-        const res = await fetch(fullUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${sec}`
-          },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        return data;
-      }
-
-      async function callTranslate(inputText) {
-        return fetchJson("/translate", {
-          mode: "text",
-          input_text: inputText,
-          system_prompt: "你是中日医疗翻译。自动识别中文或日文，并翻译成另一种语言。只返回翻译后的文本，不要解释，不要JSON。"
-        });
-      }
-
-      async function callImage(dataUrl) {
-        return fetchJson("/translate", {
-          mode: "image",
-          input_image: dataUrl,
-          system_prompt: "你是中日医疗翻译。识别图片中的中文或日文，并翻译成另一种语言。只返回翻译后的文本，不要解释，不要JSON。"
-        });
-      }
-
-      async function callSpeechTranslate(audioBase64) {
-        return fetchJson("/speech-translate", {
-          audio_base64: audioBase64
-        });
-      }
-
-      function blobToBase64(blob) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const result = reader.result.split(",")[1];
-            resolve(result);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      }
-
-      async function startRecord() {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          audioChunks = [];
-          mediaRecorder = new MediaRecorder(stream);
-
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) audioChunks.push(e.data);
-          };
-
-          mediaRecorder.onstop = async () => {
-            try {
-              recordBtn.classList.remove("rec");
-              recordBtn.textContent = "录音";
-
-              const blob = new Blob(audioChunks, { type: "audio/webm" });
-              const audioBase64 = await blobToBase64(blob);
-
-              setSource("识别中…");
-              setTarget("翻译中…", "ja-JP");
-
-              const result = await callSpeechTranslate(audioBase64);
-
-              const sourceText = result.source_text || "";
-              const targetText = result.translation || "";
-              const targetLang =
-                result.target_language === "zh"
-                  ? "zh-CN"
-                  : result.target_language === "ja"
-                  ? "ja-JP"
-                  : detectLangFromText(targetText);
-
-              setSource(sourceText);
-              setTarget(targetText, targetLang);
-              manualInput.value = sourceText;
-            } catch (err) {
-              setTarget("错误：" + err.message);
-            }
-          };
-
-          mediaRecorder.start();
-          recordBtn.classList.add("rec");
-          recordBtn.textContent = "停止";
-        } catch (err) {
-          setTarget("无法录音：" + err.message);
-        }
-      }
-
-      function stopRecord() {
-        if (mediaRecorder && mediaRecorder.state === "recording") {
-          mediaRecorder.stop();
-        }
-      }
-
-      recordBtn.addEventListener("click", () => {
-        if (mediaRecorder && mediaRecorder.state === "recording") {
-          stopRecord();
-        } else {
-          startRecord();
-        }
+      // 1️⃣ 语音识别
+      const res1 = await fetch(RELAY_URL + "/transcribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + SECRET
+        },
+        body: JSON.stringify({ audio_base64: base64 })
       });
 
-      cameraBtn.addEventListener("click", () => imageInput.click());
+      const data1 = await res1.json();
 
-      imageInput.addEventListener("change", async (ev) => {
-        const file = ev.target.files && ev.target.files[0];
-        if (!file) return;
+      document.getElementById("src").innerText = data1.text;
 
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try {
-            const dataUrl = reader.result;
-            preview.src = dataUrl;
-            preview.style.display = "block";
-
-            setSource("图片识别中…");
-            setTarget("翻译中…", "ja-JP");
-
-            const result = await callImage(dataUrl);
-            const translated = result.translation || "";
-            setTarget(translated, detectLangFromText(translated));
-          } catch (err) {
-            setTarget("错误：" + err.message);
-          }
-        };
-
-        reader.readAsDataURL(file);
-        imageInput.value = "";
+      // 2️⃣ 翻译
+      const res2 = await fetch(RELAY_URL + "/translate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + SECRET
+        },
+        body: JSON.stringify({ input_text: data1.text })
       });
 
-      translateBtn.addEventListener("click", async () => {
-        try {
-          const text = manualInput.value.trim();
-          if (!text) {
-            setTarget("请先输入内容");
-            return;
-          }
+      const data2 = await res2.json();
 
-          setSource(text);
-          setTarget("翻译中…", "ja-JP");
+      document.getElementById("dst").innerText = data2.translation;
+    };
 
-          const result = await callTranslate(text);
-          const translated = result.translation || "";
-          setTarget(translated, detectLangFromText(translated));
-        } catch (err) {
-          setTarget("错误：" + err.message);
-        }
-      });
+    mediaRecorder.start();
+    document.getElementById("recordBtn").innerText = "停止录音";
 
-      clearBtn.addEventListener("click", () => {
-        setSource("");
-        setTarget("");
-        manualInput.value = "";
-        preview.style.display = "none";
-        preview.src = "";
-      });
+  } else {
 
-      speakBtn.addEventListener("click", () => {
-        speak(dstText.textContent.trim(), lastTargetLang);
-      });
+    mediaRecorder.stop();
+    document.getElementById("recordBtn").innerText = "开始录音";
 
-      settingsBtn.addEventListener("click", () => {
-        sheet.classList.add("show");
-      });
+  }
+};
 
-      closeBtn.addEventListener("click", () => {
-        sheet.classList.remove("show");
-      });
+function blobToBase64(blob) {
+  return new Promise(r => {
+    const reader = new FileReader();
+    reader.onloadend = () => r(reader.result.split(",")[1]);
+    reader.readAsDataURL(blob);
+  });
+}
+</script>
 
-      saveBtn.addEventListener("click", () => {
-        saveSettings();
-        sheet.classList.remove("show");
-        alert("已保存");
-      });
-
-      initSettings();
-    })();
-  </script>
 </body>
 </html>
