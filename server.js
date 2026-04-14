@@ -12,7 +12,9 @@ app.post("/translate", async (req, res) => {
   if (req.headers.authorization !== `Bearer ${RELAY_SECRET}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-
+  if (!req.headers.authorization?.includes("Luna-JP")) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
   const { mode, input_text, input_image } = req.body;
 
   let messages = [
@@ -63,7 +65,9 @@ app.post("/transcribe", async (req, res) => {
     if (req.headers.authorization !== `Bearer ${RELAY_SECRET}`) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-
+  if (!req.headers.authorization?.includes("Luna-JP")) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
     const { audio_base64 } = req.body;
 
     if (!audio_base64) {
