@@ -1,3 +1,7 @@
+app.get("/", (req, res) => {
+  res.send("OK");
+});
+
 import express from "express";
 import fetch from "node-fetch";
 
@@ -77,6 +81,6 @@ app.post("/translate", async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("running");
+app.listen(process.env.PORT, "0.0.0.0", () => {
+  console.log("running on", process.env.PORT);
 });
