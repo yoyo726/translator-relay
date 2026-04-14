@@ -7,6 +7,10 @@ app.use(express.json({ limit: "20mb" }));
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const RELAY_SECRET = process.env.RELAY_SECRET;
 
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
+
 app.post("/translate", async (req, res) => {
   try {
     if (req.headers.authorization !== `Bearer ${RELAY_SECRET}`) {
@@ -17,48 +21,62 @@ app.post("/translate", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const { mode, input_text, input_image } = req.body;
+    const { mode, input_text, input_image, model, temperature, system_prompt } = req.body;
 
-    let messages = [
+    const messages = [
       {
         role: "system",
-        content: "你是中日医疗翻译，自动判断语言并翻译"
+        content:
+          system_prompt ||
+          "你是中日医疗翻译，自动判断语言并翻译。返回自然、准确、简洁的结果。"
       }
     ];
-
-    if (mode === "text") {
-      messages.push({ role: "user", content: input_text });
-    }
 
     if (mode === "image") {
       messages.push({
         role: "user",
         content: [
-          { type: "text", text: "识别图片并翻译" },
+          { type: "text", text: "识别图片中的文字并翻译。" },
           { type: "image_url", image_url: { url: input_image } }
         ]
+      });
+    } else {
+      messages.push({
+        role: "user",
+        content: input_text || ""
       });
     }
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENAI_KEY}`,
+        Authorization: `Bearer ${OPENAI_KEY}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4.1-mini",
+        model: model || "gpt-4.1-mini",
+        temperature: typeof temperature === "number" ? temperature : 0.2,
         messages
       })
     });
 
     const data = await response.json();
 
-    res.json({
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: data?.error?.message || "OpenAI request failed",
+        raw: data
+      });
+    }
+
+    return res.json({
       translation: data?.choices?.[0]?.message?.content || ""
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message || "Server error" });
   }
 });
 
+app.listen(process.env.PORT || 3000, () => {
+  console.log("running");
+});
