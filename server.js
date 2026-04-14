@@ -79,7 +79,7 @@ app.post("/translate", async (req, res) => {
   }
 });
 
-const port = process.env.PORT;
+const port = 3000;
 
 app.listen(port, "0.0.0.0", () => {
   console.log("running on", port);
