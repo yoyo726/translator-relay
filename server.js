@@ -56,6 +56,42 @@ app.post("/translate", async (req, res) => {
 
 });
 
-app.listen(3000, () => {
+
+// 🎤 Whisper 语音转文字
+app.post("/transcribe", async (req, res) => {
+  try {
+    if (req.headers.authorization !== `Bearer ${RELAY_SECRET}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { audio_base64 } = req.body;
+
+    if (!audio_base64) {
+      return res.status(400).json({ error: "No audio provided" });
+    }
+
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_KEY}`
+      },
+      body: (() => {
+        const form = new FormData();
+        const buffer = Buffer.from(audio_base64, "base64");
+        form.append("file", new Blob([buffer]), "audio.m4a");
+        form.append("model", "gpt-4o-mini-transcribe");
+        return form;
+      })()
+    });
+
+    const data = await response.json();
+
+    res.json({ text: data.text });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.listen(process.env.PORT || 3000, () => {
   console.log("running");
 });
