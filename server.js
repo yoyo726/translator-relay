@@ -95,7 +95,6 @@ app.post("/transcribe", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
 app.listen(process.env.PORT || 3000, () => {
   console.log("running");
 });
