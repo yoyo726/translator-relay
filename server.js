@@ -5,7 +5,7 @@ import cors from "cors";
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "25mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const RELAY_SECRET = process.env.RELAY_SECRET;
@@ -15,7 +15,7 @@ app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
 
-// 文本 / 图片翻译
+// 翻译接口
 app.post("/translate", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
@@ -35,7 +35,7 @@ app.post("/translate", async (req, res) => {
         role: "system",
         content:
           system_prompt ||
-          "你是中日医疗翻译。自动识别中文或日文，并翻译成另一种语言。只返回翻译后的文本，不要解释，不要JSON。"
+          "你是中日医疗翻译。自动识别语言并翻译。只返回翻译后的文本，不要JSON，不要解释。"
       }
     ];
 
@@ -43,7 +43,7 @@ app.post("/translate", async (req, res) => {
       messages.push({
         role: "user",
         content: [
-          { type: "text", text: "识别图片中的文字并翻译成另一种语言。" },
+          { type: "text", text: "识别图片中的文字并翻译。" },
           { type: "image_url", image_url: { url: input_image } }
         ]
       });
@@ -76,16 +76,27 @@ app.post("/translate", async (req, res) => {
       });
     }
 
+    let content = data?.choices?.[0]?.message?.content || "";
+
+    // 自动解析JSON（如果模型返回JSON）
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+
     return res.json({
-      translation: data?.choices?.[0]?.message?.content || ""
+      translation: parsed?.translation || content
     });
+
   } catch (err) {
     return res.status(500).json({ error: err.message || "Server error" });
   }
 });
 
-// 极速语音翻译：一次请求完成“识别+翻译”
-app.post("/speech-translate", async (req, res) => {
+// Whisper语音识别
+app.post("/transcribe", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
 
@@ -103,70 +114,32 @@ app.post("/speech-translate", async (req, res) => {
       return res.status(400).json({ error: "No audio provided" });
     }
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const buffer = Buffer.from(audio_base64, "base64");
+
+    const formData = new FormData();
+    formData.append("file", new Blob([buffer]), "audio.m4a");
+    formData.append("model", "gpt-4o-mini-transcribe");
+
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${OPENAI_KEY}`
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content:
-              "你是中日医疗口译助手。用户会提供一段语音转写内容或语音内容。你的任务是：1）识别原文是中文还是日文；2）翻译成另一种语言；3）仅返回严格JSON，不要任何解释。格式必须是：{\"source_text\":\"...\",\"source_language\":\"zh或ja\",\"target_language\":\"ja或zh\",\"translation\":\"...\"}"
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "请识别这段语音并翻译成另一种语言，只返回JSON。"
-              },
-              {
-                type: "input_audio",
-                input_audio: {
-                  data: audio_base64,
-                  format: "wav"
-                }
-              }
-            ]
-          }
-        ]
-      })
+      body: formData
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || "OpenAI request failed",
-        raw: data
-      });
-    }
-
-    const content = data?.choices?.[0]?.message?.content || "";
-    let parsed = null;
-
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      parsed = null;
-    }
-
     return res.json({
-      source_text: parsed?.source_text || "",
-      source_language: parsed?.source_language || "",
-      target_language: parsed?.target_language || "",
-      translation: parsed?.translation || content
+      text: data.text || ""
     });
+
   } catch (err) {
-    return res.status(500).json({ error: err.message || "Speech translate error" });
+    return res.status(500).json({ error: err.message || "Transcribe error" });
   }
 });
 
+// 启动服务（Railway固定3000）
 const port = 3000;
 
 app.listen(port, "0.0.0.0", () => {
