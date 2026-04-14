@@ -10,10 +10,12 @@ app.use(express.json({ limit: "20mb" }));
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const RELAY_SECRET = process.env.RELAY_SECRET;
 
+// 健康检查
 app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
 
+// 翻译接口
 app.post("/translate", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
@@ -33,7 +35,7 @@ app.post("/translate", async (req, res) => {
         role: "system",
         content:
           system_prompt ||
-          "你是中日医疗翻译，自动判断语言并翻译。返回自然、准确、简洁的结果。"
+          "你是中日医疗翻译。自动识别语言并翻译。只返回翻译后的文本，不要JSON，不要解释。"
       }
     ];
 
@@ -74,14 +76,70 @@ app.post("/translate", async (req, res) => {
       });
     }
 
+    let content = data?.choices?.[0]?.message?.content || "";
+
+    // 自动解析JSON（如果模型返回JSON）
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+
     return res.json({
-      translation: data?.choices?.[0]?.message?.content || ""
+      translation: parsed?.translation || content
     });
+
   } catch (err) {
     return res.status(500).json({ error: err.message || "Server error" });
   }
 });
 
+// Whisper语音识别
+app.post("/transcribe", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+
+    if (auth !== `Bearer ${RELAY_SECRET}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!auth.includes("Luna-JP")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { audio_base64 } = req.body;
+
+    if (!audio_base64) {
+      return res.status(400).json({ error: "No audio provided" });
+    }
+
+    const buffer = Buffer.from(audio_base64, "base64");
+
+    const formData = new FormData();
+    formData.append("file", new Blob([buffer]), "audio.m4a");
+    formData.append("model", "gpt-4o-mini-transcribe");
+
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_KEY}`
+      },
+      body: formData
+    });
+
+    const data = await response.json();
+
+    return res.json({
+      text: data.text || ""
+    });
+
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "Transcribe error" });
+  }
+});
+
+// 启动服务（Railway固定3000）
 const port = 3000;
 
 app.listen(port, "0.0.0.0", () => {
