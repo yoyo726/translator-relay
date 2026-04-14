@@ -1,5 +1,5 @@
-import express from "express";
-import fetch from "node-fetch";
+const express = require("express");
+const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
