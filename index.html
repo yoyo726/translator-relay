@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中日翻译器</title>
+<style>
+body{font-family:sans-serif;background:#111;color:#fff;padding:20px}
+textarea,input{width:100%;margin:10px 0;padding:10px;border-radius:10px;border:none}
+button{padding:10px 20px;border:none;border-radius:10px;background:#3b82f6;color:#fff}
+</style>
+</head>
+<body>
+
+<h2>中日翻译器</h2>
+
+<input id="url" placeholder="Relay URL">
+<input id="key" placeholder="API Key">
+
+<textarea id="input" placeholder="输入内容"></textarea>
+
+<button onclick="go()">翻译</button>
+
+<h3>结果：</h3>
+<div id="out"></div>
+
+<script>
+async function go(){
+  const url = document.getElementById("url").value;
+  const key = document.getElementById("key").value;
+  const text = document.getElementById("input").value;
+
+  const res = await fetch(url,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":"Bearer "+key
+    },
+    body:JSON.stringify({
+      mode:"text",
+      input_text:text
+    })
+  });
+
+  const data = await res.json();
+  document.getElementById("out").innerText = data.translation || JSON.stringify(data);
+}
+</script>
+
+</body>
+</html>
