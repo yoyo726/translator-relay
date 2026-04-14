@@ -5,7 +5,7 @@ import cors from "cors";
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "20mb" }));
+app.use(express.json({ limit: "25mb" }));
 
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const RELAY_SECRET = process.env.RELAY_SECRET;
@@ -15,7 +15,7 @@ app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
 
-// 翻译接口
+// 文本 / 图片翻译
 app.post("/translate", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
@@ -35,7 +35,7 @@ app.post("/translate", async (req, res) => {
         role: "system",
         content:
           system_prompt ||
-          "你是中日医疗翻译。自动识别语言并翻译。只返回翻译后的文本，不要JSON，不要解释。"
+          "你是中日医疗翻译。自动识别中文或日文，并翻译成另一种语言。只返回翻译后的文本，不要解释，不要JSON。"
       }
     ];
 
@@ -43,7 +43,7 @@ app.post("/translate", async (req, res) => {
       messages.push({
         role: "user",
         content: [
-          { type: "text", text: "识别图片中的文字并翻译。" },
+          { type: "text", text: "识别图片中的文字并翻译成另一种语言。" },
           { type: "image_url", image_url: { url: input_image } }
         ]
       });
@@ -76,27 +76,16 @@ app.post("/translate", async (req, res) => {
       });
     }
 
-    let content = data?.choices?.[0]?.message?.content || "";
-
-    // 自动解析JSON（如果模型返回JSON）
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      parsed = null;
-    }
-
     return res.json({
-      translation: parsed?.translation || content
+      translation: data?.choices?.[0]?.message?.content || ""
     });
-
   } catch (err) {
     return res.status(500).json({ error: err.message || "Server error" });
   }
 });
 
-// Whisper语音识别
-app.post("/transcribe", async (req, res) => {
+// 语音：一次前端请求，后端内部完成“转写 + 翻译”
+app.post("/speech-translate", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
 
@@ -114,32 +103,87 @@ app.post("/transcribe", async (req, res) => {
       return res.status(400).json({ error: "No audio provided" });
     }
 
-    const buffer = Buffer.from(audio_base64, "base64");
-
-    const formData = new FormData();
-    formData.append("file", new Blob([buffer]), "audio.m4a");
-    formData.append("model", "gpt-4o-mini-transcribe");
-
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    // 第一步：转写
+    const transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`
+        Authorization: `Bearer ${OPENAI_KEY}`,
+        "Content-Type": "application/json"
       },
-      body: formData
+      body: JSON.stringify({
+        file: audio_base64,
+        model: "gpt-4o-mini-transcribe"
+      })
     });
 
-    const data = await response.json();
+    const transcriptionData = await transcriptionResponse.json();
+
+    if (!transcriptionResponse.ok) {
+      return res.status(transcriptionResponse.status).json({
+        error: transcriptionData?.error?.message || "Transcription failed",
+        raw: transcriptionData
+      });
+    }
+
+    const sourceText = transcriptionData?.text || "";
+
+    if (!sourceText) {
+      return res.status(500).json({ error: "Empty transcription result" });
+    }
+
+    // 第二步：翻译，并返回结构化 JSON
+    const translateResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是中日医疗口译助手。请自动识别输入文本是中文还是日文，并翻译成另一种语言。只返回严格 JSON，不要解释。格式必须是：{\"source_text\":\"...\",\"source_language\":\"zh或ja\",\"target_language\":\"ja或zh\",\"translation\":\"...\"}"
+          },
+          {
+            role: "user",
+            content: sourceText
+          }
+        ]
+      })
+    });
+
+    const translateData = await translateResponse.json();
+
+    if (!translateResponse.ok) {
+      return res.status(translateResponse.status).json({
+        error: translateData?.error?.message || "Translation failed",
+        raw: translateData
+      });
+    }
+
+    const content = translateData?.choices?.[0]?.message?.content || "";
+    let parsed = null;
+
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
 
     return res.json({
-      text: data.text || ""
+      source_text: parsed?.source_text || sourceText,
+      source_language: parsed?.source_language || "",
+      target_language: parsed?.target_language || "",
+      translation: parsed?.translation || content
     });
-
   } catch (err) {
-    return res.status(500).json({ error: err.message || "Transcribe error" });
+    return res.status(500).json({ error: err.message || "Speech translate error" });
   }
 });
 
-// 启动服务（Railway固定3000）
 const port = 3000;
 
 app.listen(port, "0.0.0.0", () => {
