@@ -425,9 +425,13 @@ Rules:
 
 8) Prefer warm, natural, professional phrasing. Do not sound cold, robotic, or overly textbook-like.
 
-9) Do not add explanations unless the original requires clarification.
+9) NEVER output pinyin or romaji. Output must only be valid Japanese or Chinese text. If unsure, choose a safe clinical expression instead of phonetic fallback.
 
-10) Return JSON only:
+10) For short medical phrases, prefer natural Japanese clinical sentence style rather than stiff noun-for-noun translation. Example: "可疑结节" → "結節が疑われます".
+
+11) Do not add explanations unless the original requires clarification.
+
+12) Return JSON only:
 {"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"..."}`;
       }
 
@@ -451,7 +455,11 @@ Rules:
 
 9) Prefer warm, natural, professional phrasing. Do not sound cold, robotic, or overly textbook-like.
 
-10) Return JSON only:
+10) NEVER output pinyin or romaji. Output must only be valid Japanese or Chinese text. If unsure, choose a safe clinical expression instead of phonetic fallback.
+
+11) For short medical phrases, prefer natural Japanese clinical sentence style rather than stiff noun-for-noun translation. Example: "可疑结节" → "結節が疑われます".
+
+12) Return JSON only:
 {"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"...","ocr_text":"..."}`;
       }
 
