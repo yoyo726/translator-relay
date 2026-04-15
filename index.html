@@ -14,6 +14,8 @@
       --muted:#93c5fd;
       --btn-blue-1:#3b82f6;
       --btn-blue-2:#2563eb;
+      --dst-font-scale:1;
+      --dst-auto-size:32px;
     }
 
     *{
@@ -117,7 +119,7 @@
     }
 
     .dst{
-      font-size:clamp(32px,5.8vw,58px);
+      font-size:calc(var(--dst-auto-size, 32px) * var(--dst-font-scale, 1));
       font-weight:650;
     }
 
@@ -138,6 +140,14 @@
       resize:none;
       outline:none;
       display:none;
+    }
+
+    .hint{
+      font-size:12px;
+      color:#cbd5e1;
+      opacity:.9;
+      margin-top:6px;
+      line-height:1.45;
     }
 
     .sheet{
@@ -170,7 +180,7 @@
       color:#bfdbfe;
     }
 
-    .field input{
+    .field input,.field select{
       width:100%;
       background:rgba(255,255,255,.06);
       border:1px solid var(--line);
@@ -221,6 +231,7 @@
           </div>
         </div>
         <div id="dstText" class="text dst placeholder">……</div>
+        <div class="hint" id="modelHint">当前模型：自动</div>
       </section>
     </div>
   </div>
@@ -230,14 +241,27 @@
       <label>Relay URL</label>
       <input id="relayUrl" placeholder="https://xxx.up.railway.app" />
     </div>
+
     <div class="field">
       <label>访问密钥（RELAY_SECRET）</label>
       <input id="secret" type="password" placeholder="输入你的 relay secret" />
     </div>
+
     <div class="field">
-      <label>翻译模型</label>
-      <input id="model" placeholder="gpt-4.1-mini" />
+      <label>快速模型（短句 / OCR）</label>
+      <input id="fastModel" placeholder="gpt-4o-mini" />
     </div>
+
+    <div class="field">
+      <label>稳妥模型（复杂句）</label>
+      <input id="smartModel" placeholder="gpt-4.1-mini" />
+    </div>
+
+    <div class="field">
+      <label>翻译结果字体倍率（0.6 ~ 1.5，1为默认；会先按字数自动缩放）</label>
+      <input id="fontScale" type="number" min="0.6" max="1.5" step="0.1" placeholder="1.0" />
+    </div>
+
     <div class="row">
       <button id="saveBtn" class="primary-btn">保存</button>
       <button id="closeBtn" class="primary-btn">关闭</button>
@@ -260,30 +284,46 @@
       const srcInput = $("#srcInput");
 
       const dstText = $("#dstText");
+      const dstLabel = $("#dstLabel");
       const speakBtn = $("#speakBtn");
+      const modelHint = $("#modelHint");
 
       const sheet = $("#sheet");
       const relayUrl = $("#relayUrl");
       const secret = $("#secret");
-      const model = $("#model");
+      const fastModel = $("#fastModel");
+      const smartModel = $("#smartModel");
+      const fontScale = $("#fontScale");
       const saveBtn = $("#saveBtn");
       const closeBtn = $("#closeBtn");
 
       let mediaRecorder = null;
       let audioChunks = [];
       let lastTargetLang = "ja-JP";
-      let currentMode = "display"; // display | text-input
+      let currentMode = "display";
 
       function initSettings() {
         relayUrl.value = localStorage.getItem("luna_relay_url") || "";
         secret.value = localStorage.getItem("luna_relay_secret") || "";
-        model.value = localStorage.getItem("luna_model") || "gpt-4.1-mini";
+        fastModel.value = localStorage.getItem("luna_fast_model") || "gpt-4o-mini";
+        smartModel.value = localStorage.getItem("luna_smart_model") || "gpt-4.1-mini";
+        fontScale.value = localStorage.getItem("luna_font_scale") || "1.0";
+        applyFontScale();
       }
 
       function saveSettings() {
         localStorage.setItem("luna_relay_url", relayUrl.value.trim());
         localStorage.setItem("luna_relay_secret", secret.value.trim());
-        localStorage.setItem("luna_model", model.value.trim());
+        localStorage.setItem("luna_fast_model", fastModel.value.trim());
+        localStorage.setItem("luna_smart_model", smartModel.value.trim());
+        localStorage.setItem("luna_font_scale", fontScale.value.trim());
+        applyFontScale();
+      }
+
+      function applyFontScale() {
+        const scale = Number(fontScale.value || "1");
+        const safeScale = Math.min(1.5, Math.max(0.6, scale || 1));
+        document.documentElement.style.setProperty("--dst-font-scale", String(safeScale));
       }
 
       function setSourceDisplay(text) {
@@ -310,6 +350,27 @@
         dstText.textContent = text || "……";
         dstText.classList.toggle("placeholder", !text);
         lastTargetLang = lang;
+
+        const len = (text || "").replace(/\s/g, "").length;
+        let autoSize = "32px";
+
+        if (len <= 12) {
+          autoSize = "40px";
+        } else if (len <= 24) {
+          autoSize = "32px";
+        } else if (len <= 40) {
+          autoSize = "26px";
+        } else if (len <= 60) {
+          autoSize = "22px";
+        } else {
+          autoSize = "18px";
+        }
+
+        document.documentElement.style.setProperty("--dst-auto-size", autoSize);
+      }
+
+      function setModelHint(text) {
+        modelHint.textContent = text || "当前模型：自动";
       }
 
       function speak(text, lang) {
@@ -320,11 +381,35 @@
         speechSynthesis.speak(u);
       }
 
-      async function callTranslate(inputText) {
+      function estimateComplexity(text) {
+        if (!text) return false;
+
+        const len = text.length;
+        const commaCount = (text.match(/[，。！？；、,.!?;:：]/g) || []).length;
+        const lineBreaks = (text.match(/\n/g) || []).length;
+        const hasBrackets = /[()（）\[\]【】]/.test(text);
+        const hasMedicalTerms = /甲状腺|肿瘤|切除|穿刺|淋巴|转移|病理|甲状旁腺|麻醉|气管|甲状腺癌|滤泡癌|囊肿|甲状腺機能|腫瘍|病理|切除|転移|リンパ|麻酔|気管/.test(text);
+
+        return len > 28 || commaCount >= 2 || lineBreaks > 0 || hasBrackets || hasMedicalTerms;
+      }
+
+      function chooseModelForText(text, scene = "text") {
+        const fast = fastModel.value.trim() || "gpt-4o-mini";
+        const smart = smartModel.value.trim() || "gpt-4.1-mini";
+
+        if (scene === "ocr") return fast;
+        if (scene === "voice") return estimateComplexity(text) ? smart : fast;
+        return estimateComplexity(text) ? smart : fast;
+      }
+
+      async function callTranslate(inputText, scene = "text") {
         const base = relayUrl.value.trim();
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
+
+        const pickedModel = chooseModelForText(inputText, scene);
+        setModelHint(`当前模型：${pickedModel}`);
 
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
@@ -336,7 +421,7 @@
           },
           body: JSON.stringify({
             mode: "text",
-            model: model.value.trim() || "gpt-4.1-mini",
+            model: pickedModel,
             temperature: 0.2,
             input_text: inputText,
             system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
@@ -360,11 +445,31 @@ Rules:
         return { translation: JSON.stringify(data) };
       }
 
+      async function compressImage(file) {
+        const bitmap = await createImageBitmap(file);
+        const maxWidth = 1200;
+        const scale = Math.min(1, maxWidth / bitmap.width);
+        const width = Math.round(bitmap.width * scale);
+        const height = Math.round(bitmap.height * scale);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bitmap, 0, 0, width, height);
+
+        return canvas.toDataURL("image/jpeg", 0.7);
+      }
+
       async function callImage(base64DataUrl) {
         const base = relayUrl.value.trim();
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
+
+        const pickedModel = fastModel.value.trim() || "gpt-4o-mini";
+        setModelHint(`当前模型：${pickedModel}`);
 
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
@@ -376,7 +481,7 @@ Rules:
           },
           body: JSON.stringify({
             mode: "image",
-            model: model.value.trim() || "gpt-4.1-mini",
+            model: pickedModel,
             temperature: 0.2,
             input_image: base64DataUrl,
             system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
@@ -399,6 +504,8 @@ Rules:
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
+
+        setModelHint("当前模型：gpt-4o-mini-transcribe → 自动翻译");
 
         const url = base.endsWith("/") ? base + "transcribe" : base + "/transcribe";
 
@@ -454,7 +561,7 @@ Rules:
               const tr = await callTranscribe(audioBase64);
               setSourceDisplay(tr.text || "");
 
-              const translated = await callTranslate(tr.text || "");
+              const translated = await callTranslate(tr.text || "", "voice");
               const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
 
               setSourceDisplay(translated.cleaned_source || tr.text || "");
@@ -492,40 +599,41 @@ Rules:
         const file = ev.target.files && ev.target.files[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try {
-            const dataUrl = reader.result;
-            setSourceDisplay("图片识别中…");
-            setTarget("翻译中…", "ja-JP");
+        try {
+          setSourceDisplay("图片压缩中…");
+          setTarget("翻译中…", "ja-JP");
 
-            const r = await callImage(dataUrl);
-            const tl = r.target_language === "ja" ? "ja-JP" : "zh-CN";
-            setSourceDisplay(r.cleaned_source || r.ocr_text || "识别完成");
-            setTarget(r.translation || "", tl);
-          } catch (err) {
-            setTarget("错误：" + err.message);
-          }
-        };
-        reader.readAsDataURL(file);
-        imageInput.value = "";
+          const compressedDataUrl = await compressImage(file);
+
+          setSourceDisplay("图片识别中…");
+          const r = await callImage(compressedDataUrl);
+          const tl = r.target_language === "ja" ? "ja-JP" : "zh-CN";
+          setSourceDisplay(r.cleaned_source || r.ocr_text || "识别完成");
+          setTarget(r.translation || "", tl);
+        } catch (err) {
+          setTarget("错误：" + err.message);
+        } finally {
+          imageInput.value = "";
+        }
       });
 
       textModeBtn.addEventListener("click", () => {
         setSourceInput("");
         setTarget("……", "ja-JP");
+        setModelHint("当前模型：自动");
       });
 
       srcInput.addEventListener("input", async () => {
         const text = getSourceInputValue();
         if (!text) {
           setTarget("……", "ja-JP");
+          setModelHint("当前模型：自动");
           return;
         }
 
         try {
           setTarget("翻译中…", "ja-JP");
-          const translated = await callTranslate(text);
+          const translated = await callTranslate(text, "text");
           const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
           setTarget(translated.translation || "", tl);
         } catch (err) {
@@ -537,6 +645,7 @@ Rules:
         setSourceDisplay("");
         setTarget("");
         srcInput.value = "";
+        setModelHint("当前模型：自动");
       });
 
       speakBtn.addEventListener("click", () => {
