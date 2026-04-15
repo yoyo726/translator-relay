@@ -65,7 +65,7 @@
       flex:1;
       min-height:0;
       display:grid;
-      grid-template-rows:1fr 1fr 1.25fr;
+      grid-template-rows:.95fr 1.45fr;
       gap:10px;
     }
 
@@ -109,6 +109,7 @@
       overflow:auto;
       word-break:break-word;
       line-height:1.4;
+      white-space:pre-wrap;
     }
 
     .src{
@@ -116,7 +117,7 @@
     }
 
     .dst{
-      font-size:clamp(30px,5.6vw,54px);
+      font-size:clamp(32px,5.8vw,58px);
       font-weight:650;
     }
 
@@ -124,18 +125,7 @@
       opacity:.34;
     }
 
-    .preview{
-      width:100%;
-      max-height:110px;
-      object-fit:contain;
-      border-radius:12px;
-      margin-top:8px;
-      display:none;
-      border:1px solid rgba(255,255,255,.08);
-      background:rgba(255,255,255,.03);
-    }
-
-    .manualInput{
+    .inputBox{
       width:100%;
       height:100%;
       min-height:0;
@@ -144,9 +134,10 @@
       color:#fff;
       border-radius:14px;
       padding:12px;
-      font-size:18px;
+      font-size:20px;
       resize:none;
       outline:none;
+      display:none;
     }
 
     .sheet{
@@ -205,7 +196,7 @@
     <div class="top">
       <button id="recordBtn" class="primary-btn">语音</button>
       <button id="cameraBtn" class="primary-btn">拍照</button>
-      <button id="translateBtn" class="primary-btn">文字</button>
+      <button id="textModeBtn" class="primary-btn">文字</button>
       <button id="clearTopBtn" class="primary-btn">清空</button>
     </div>
 
@@ -216,15 +207,9 @@
         <div class="head">
           <div id="srcLabel" class="label">识别结果</div>
         </div>
-        <div id="srcText" class="text src placeholder">……</div>
-        <img id="preview" class="preview" alt="preview">
-      </section>
 
-      <section class="card">
-        <div class="head">
-          <div class="label">文字输入</div>
-        </div>
-        <textarea id="manualInput" class="manualInput" placeholder="也可以直接手动输入中文或日文"></textarea>
+        <div id="srcText" class="text src placeholder">……</div>
+        <textarea id="srcInput" class="inputBox" placeholder="请输入中文或日文"></textarea>
       </section>
 
       <section class="card">
@@ -265,15 +250,17 @@
 
       const recordBtn = $("#recordBtn");
       const cameraBtn = $("#cameraBtn");
-      const translateBtn = $("#translateBtn");
+      const textModeBtn = $("#textModeBtn");
       const clearTopBtn = $("#clearTopBtn");
       const settingsBtn = $("#settingsBtn");
       const imageInput = $("#imageInput");
+
+      const srcLabel = $("#srcLabel");
       const srcText = $("#srcText");
+      const srcInput = $("#srcInput");
+
       const dstText = $("#dstText");
       const speakBtn = $("#speakBtn");
-      const preview = $("#preview");
-      const manualInput = $("#manualInput");
 
       const sheet = $("#sheet");
       const relayUrl = $("#relayUrl");
@@ -285,6 +272,7 @@
       let mediaRecorder = null;
       let audioChunks = [];
       let lastTargetLang = "ja-JP";
+      let currentMode = "display"; // display | text-input
 
       function initSettings() {
         relayUrl.value = localStorage.getItem("luna_relay_url") || "";
@@ -298,9 +286,24 @@
         localStorage.setItem("luna_model", model.value.trim());
       }
 
-      function setSource(text) {
+      function setSourceDisplay(text) {
+        currentMode = "display";
+        srcText.style.display = "block";
+        srcInput.style.display = "none";
         srcText.textContent = text || "……";
         srcText.classList.toggle("placeholder", !text);
+      }
+
+      function setSourceInput(text = "") {
+        currentMode = "text-input";
+        srcText.style.display = "none";
+        srcInput.style.display = "block";
+        srcInput.value = text;
+        setTimeout(() => srcInput.focus(), 50);
+      }
+
+      function getSourceInputValue() {
+        return srcInput.value.trim();
       }
 
       function setTarget(text, lang = "ja-JP") {
@@ -350,14 +353,10 @@ Rules:
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-        if (data.translation) {
-          return data;
-        }
-
+        if (data.translation) return data;
         if (data.output_text) {
           try { return JSON.parse(data.output_text); } catch(e) {}
         }
-
         return { translation: JSON.stringify(data) };
       }
 
@@ -445,21 +444,21 @@ Rules:
             try {
               recordBtn.classList.remove("rec");
               recordBtn.textContent = "语音";
+
               const blob = new Blob(audioChunks, { type: "audio/webm" });
               const audioBase64 = await blobToBase64(blob);
 
-              setSource("语音识别中…");
+              setSourceDisplay("语音识别中…");
               setTarget("翻译中…", "ja-JP");
 
               const tr = await callTranscribe(audioBase64);
-              setSource(tr.text || "");
+              setSourceDisplay(tr.text || "");
 
               const translated = await callTranslate(tr.text || "");
               const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
 
-              setSource(translated.cleaned_source || tr.text || "");
+              setSourceDisplay(translated.cleaned_source || tr.text || "");
               setTarget(translated.translation || "", tl);
-              manualInput.value = translated.cleaned_source || tr.text || "";
             } catch (err) {
               setTarget("错误：" + err.message);
             }
@@ -497,14 +496,12 @@ Rules:
         reader.onload = async () => {
           try {
             const dataUrl = reader.result;
-            preview.src = dataUrl;
-            preview.style.display = "block";
-            setSource("图片识别中…");
+            setSourceDisplay("图片识别中…");
             setTarget("翻译中…", "ja-JP");
 
             const r = await callImage(dataUrl);
             const tl = r.target_language === "ja" ? "ja-JP" : "zh-CN";
-            setSource(r.cleaned_source || r.ocr_text || "识别完成");
+            setSourceDisplay(r.cleaned_source || r.ocr_text || "识别完成");
             setTarget(r.translation || "", tl);
           } catch (err) {
             setTarget("错误：" + err.message);
@@ -514,18 +511,22 @@ Rules:
         imageInput.value = "";
       });
 
-      translateBtn.addEventListener("click", async () => {
+      textModeBtn.addEventListener("click", () => {
+        setSourceInput("");
+        setTarget("……", "ja-JP");
+      });
+
+      srcInput.addEventListener("input", async () => {
+        const text = getSourceInputValue();
+        if (!text) {
+          setTarget("……", "ja-JP");
+          return;
+        }
+
         try {
-          const text = manualInput.value.trim();
-          if (!text) {
-            setTarget("请先输入内容");
-            return;
-          }
-          setSource(text);
           setTarget("翻译中…", "ja-JP");
           const translated = await callTranslate(text);
           const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
-          setSource(translated.cleaned_source || text);
           setTarget(translated.translation || "", tl);
         } catch (err) {
           setTarget("错误：" + err.message);
@@ -533,11 +534,9 @@ Rules:
       });
 
       clearTopBtn.addEventListener("click", () => {
-        setSource("");
+        setSourceDisplay("");
         setTarget("");
-        manualInput.value = "";
-        preview.style.display = "none";
-        preview.src = "";
+        srcInput.value = "";
       });
 
       speakBtn.addEventListener("click", () => {
@@ -553,6 +552,8 @@ Rules:
       });
 
       initSettings();
+      setSourceDisplay("");
+      setTarget("");
     })();
   </script>
 </body>
