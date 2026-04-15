@@ -392,7 +392,7 @@
         const punctCount = (text.match(/[，。！？；、,.!?;:：]/g) || []).length;
         const lineBreaks = (text.match(/\n/g) || []).length;
         const hasBrackets = /[()（）\[\]【】]/.test(text);
-        const hasMedicalTerms = /甲状腺|肿瘤|切除|穿刺|淋巴|转移|病理|甲状旁腺|麻醉|气管|滤泡癌|囊肿|甲状腺機能|腫瘍|病理|切除|転移|リンパ|麻酔|気管|结节|病灶|可疑|炎症|增生|复查|随访|穿刺吸引|超声|B超|CT|MRI|血检|术后|病理切片|肺部|淋巴结/.test(text);
+        const hasMedicalTerms = /甲状腺|肿瘤|切除|穿刺|淋巴|转移|病理|甲状旁腺|麻醉|气管|滤泡癌|囊肿|甲状腺機能|腫瘍|病理|切除|転移|リンパ|麻酔|気管|结节|囊肿|病灶|可疑|炎症|增生|复查|随访|穿刺吸引|超声|B超|CT|MRI|血检|术后|病理切片|肺部|淋巴结/.test(text);
 
         return len > 28 || punctCount >= 2 || lineBreaks > 0 || hasBrackets || hasMedicalTerms;
       }
@@ -406,60 +406,32 @@
         return estimateComplexity(text) ? smart : fast;
       }
 
-      function mixedNaturalMedicalPromptText() {
-        return `You are a face-to-face interpreter between Simplified Chinese and Japanese.
-
+      function medicalPromptText() {
+        return `You are a face-to-face medical interpreter for Simplified Chinese and Japanese.
 Rules:
 1) Detect whether the source is Chinese or Japanese.
 2) Translate only into the other language.
-
-3) For medical and veterinary terminology, prioritize standard clinical terminology and commonly used expressions in Japanese clinical notes, imaging reports, pathology reports, discharge summaries, and doctor-patient communication.
-
-4) For non-medical content, prioritize natural paraphrasing over literal translation. Make it sound smooth, natural, and human, not stiff or mechanical.
-
-5) Avoid Chinese-style direct mapping when a more natural Japanese or Chinese expression exists.
-
-6) Preserve medical facts exactly, including anatomy, diagnoses, symptoms, procedures, drugs, test names, pathology terms, and uncertainty.
-
-7) When a sentence contains both medical and non-medical content, keep the medical terms precise, but make the surrounding language natural and conversational.
-
-8) Prefer warm, natural, professional phrasing. Do not sound cold, robotic, or overly textbook-like.
-
-9) NEVER output pinyin or romaji. Output must only be valid Japanese or Chinese text. If unsure, choose a safe clinical expression instead of phonetic fallback.
-
-10) For short medical phrases, prefer natural Japanese clinical sentence style rather than stiff noun-for-noun translation. Example: "可疑结节" → "結節が疑われます".
-
-11) Do not add explanations unless the original requires clarification.
-
-12) Return JSON only:
+3) Prioritize medical and clinical wording over casual wording.
+4) For veterinary and human medical contexts, prefer chart-ready, clinic-ready, doctor-patient safe phrasing.
+5) Preserve symptoms, anatomy, diagnoses, procedures, drugs, test names, pathology terms, and uncertainty exactly.
+6) When multiple valid translations exist, choose the one most commonly used in clinical communication in Japan.
+7) Do not add explanations unless the original requires clarification.
+8) Keep the tone professional, natural, and concise.
+9) Return JSON only:
 {"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"..."}`;
       }
 
-      function mixedNaturalMedicalPromptImage() {
-        return `You are a face-to-face interpreter between Simplified Chinese and Japanese.
-
+      function medicalPromptImage() {
+        return `You are a face-to-face medical interpreter for Simplified Chinese and Japanese.
 Rules:
 1) OCR the image accurately.
 2) Detect whether the source is Chinese or Japanese.
 3) Translate only into the other language.
-
-4) For medical and veterinary terminology, prioritize standard clinical terminology and commonly used expressions in Japanese clinical notes, imaging reports, pathology reports, discharge summaries, and doctor-patient communication.
-
-5) For non-medical content, prioritize natural paraphrasing over literal translation. Make it sound smooth, natural, and human, not stiff or mechanical.
-
-6) Avoid Chinese-style direct mapping when a more natural Japanese or Chinese expression exists.
-
-7) Preserve medical facts exactly, including anatomy, diagnoses, symptoms, procedures, drugs, test names, pathology terms, and uncertainty.
-
-8) When a sentence contains both medical and non-medical content, keep the medical terms precise, but make the surrounding language natural and conversational.
-
-9) Prefer warm, natural, professional phrasing. Do not sound cold, robotic, or overly textbook-like.
-
-10) NEVER output pinyin or romaji. Output must only be valid Japanese or Chinese text. If unsure, choose a safe clinical expression instead of phonetic fallback.
-
-11) For short medical phrases, prefer natural Japanese clinical sentence style rather than stiff noun-for-noun translation. Example: "可疑结节" → "結節が疑われます".
-
-12) Return JSON only:
+4) Prioritize medical and clinical wording over casual wording.
+5) For veterinary and human medical contexts, prefer chart-ready, clinic-ready, doctor-patient safe phrasing.
+6) Preserve symptoms, anatomy, diagnoses, procedures, drugs, test names, pathology terms, and uncertainty exactly.
+7) When multiple valid translations exist, choose the one most commonly used in clinical communication in Japan.
+8) Return JSON only:
 {"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"...","ocr_text":"..."}`;
       }
 
@@ -485,7 +457,7 @@ Rules:
             model: pickedModel,
             temperature: 0.2,
             input_text: inputText,
-            system_prompt: mixedNaturalMedicalPromptText()
+            system_prompt: medicalPromptText()
           })
         });
 
@@ -521,7 +493,7 @@ Rules:
             model: pickedModel,
             temperature: 0.2,
             input_image: base64DataUrl,
-            system_prompt: mixedNaturalMedicalPromptImage()
+            system_prompt: medicalPromptImage()
           })
         });
 
