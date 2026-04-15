@@ -144,14 +144,6 @@
       display:none;
     }
 
-    .hint{
-      margin-top:6px;
-      font-size:12px;
-      color:#cbd5e1;
-      opacity:.9;
-      line-height:1.4;
-    }
-
     .sheet{
       position:fixed;
       inset:auto 0 0 0;
@@ -235,7 +227,6 @@
           </div>
         </div>
         <div id="dstText" class="text dst placeholder">……</div>
-        <div id="modelHint" class="hint">当前模型：自动</div>
       </section>
     </div>
   </div>
@@ -250,12 +241,8 @@
       <input id="secret" type="password" placeholder="输入你的 relay secret" />
     </div>
     <div class="field">
-      <label>快速模型（语音 / OCR / 短句）</label>
-      <input id="fastModel" placeholder="gpt-4o-mini" />
-    </div>
-    <div class="field">
-      <label>稳妥模型（复杂句）</label>
-      <input id="smartModel" placeholder="gpt-4.1-mini" />
+      <label>翻译模型</label>
+      <input id="model" placeholder="gpt-4.1-mini" />
     </div>
     <div class="field">
       <label>翻译字体倍率（0.6 ~ 1.5，1为默认；初始会先按字数自动缩放）</label>
@@ -285,13 +272,11 @@
 
       const dstText = $("#dstText");
       const speakBtn = $("#speakBtn");
-      const modelHint = $("#modelHint");
 
       const sheet = $("#sheet");
       const relayUrl = $("#relayUrl");
       const secret = $("#secret");
-      const fastModel = $("#fastModel");
-      const smartModel = $("#smartModel");
+      const model = $("#model");
       const fontScale = $("#fontScale");
       const saveBtn = $("#saveBtn");
       const closeBtn = $("#closeBtn");
@@ -303,8 +288,7 @@
       function initSettings() {
         relayUrl.value = localStorage.getItem("luna_relay_url") || "";
         secret.value = localStorage.getItem("luna_relay_secret") || "";
-        fastModel.value = localStorage.getItem("luna_fast_model") || "gpt-4o-mini";
-        smartModel.value = localStorage.getItem("luna_smart_model") || "gpt-4.1-mini";
+        model.value = localStorage.getItem("luna_model") || "gpt-4.1-mini";
         fontScale.value = localStorage.getItem("luna_font_scale") || "1.0";
         applyFontScale();
       }
@@ -312,8 +296,7 @@
       function saveSettings() {
         localStorage.setItem("luna_relay_url", relayUrl.value.trim());
         localStorage.setItem("luna_relay_secret", secret.value.trim());
-        localStorage.setItem("luna_fast_model", fastModel.value.trim());
-        localStorage.setItem("luna_smart_model", smartModel.value.trim());
+        localStorage.setItem("luna_model", model.value.trim());
         localStorage.setItem("luna_font_scale", fontScale.value.trim());
         applyFontScale();
       }
@@ -373,10 +356,6 @@
         document.documentElement.style.setProperty("--dst-auto-size", autoSize);
       }
 
-      function setModelHint(text) {
-        modelHint.textContent = text || "当前模型：自动";
-      }
-
       function speak(text, lang) {
         if (!text || text === "……" || !("speechSynthesis" in window)) return;
         speechSynthesis.cancel();
@@ -385,64 +364,11 @@
         speechSynthesis.speak(u);
       }
 
-      function estimateComplexity(text) {
-        if (!text) return false;
-
-        const len = text.length;
-        const punctCount = (text.match(/[，。！？；、,.!?;:：]/g) || []).length;
-        const lineBreaks = (text.match(/\n/g) || []).length;
-        const hasBrackets = /[()（）\[\]【】]/.test(text);
-        const hasMedicalTerms = /甲状腺|肿瘤|切除|穿刺|淋巴|转移|病理|甲状旁腺|麻醉|气管|滤泡癌|囊肿|甲状腺機能|腫瘍|病理|切除|転移|リンパ|麻酔|気管|结节|囊肿|病灶|可疑|炎症|增生|复查|随访|穿刺吸引|超声|B超|CT|MRI|血检|术后|病理切片|肺部|淋巴结/.test(text);
-
-        return len > 28 || punctCount >= 2 || lineBreaks > 0 || hasBrackets || hasMedicalTerms;
-      }
-
-      function chooseModelForText(text, scene = "text") {
-        const fast = fastModel.value.trim() || "gpt-4o-mini";
-        const smart = smartModel.value.trim() || "gpt-4.1-mini";
-
-        if (scene === "voice") return fast;
-        if (scene === "ocr") return fast;
-        return estimateComplexity(text) ? smart : fast;
-      }
-
-      function medicalPromptText() {
-        return `You are a face-to-face medical interpreter for Simplified Chinese and Japanese.
-Rules:
-1) Detect whether the source is Chinese or Japanese.
-2) Translate only into the other language.
-3) Prioritize medical and clinical wording over casual wording.
-4) For veterinary and human medical contexts, prefer chart-ready, clinic-ready, doctor-patient safe phrasing.
-5) Preserve symptoms, anatomy, diagnoses, procedures, drugs, test names, pathology terms, and uncertainty exactly.
-6) When multiple valid translations exist, choose the one most commonly used in clinical communication in Japan.
-7) Do not add explanations unless the original requires clarification.
-8) Keep the tone professional, natural, and concise.
-9) Return JSON only:
-{"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"..."}`;
-      }
-
-      function medicalPromptImage() {
-        return `You are a face-to-face medical interpreter for Simplified Chinese and Japanese.
-Rules:
-1) OCR the image accurately.
-2) Detect whether the source is Chinese or Japanese.
-3) Translate only into the other language.
-4) Prioritize medical and clinical wording over casual wording.
-5) For veterinary and human medical contexts, prefer chart-ready, clinic-ready, doctor-patient safe phrasing.
-6) Preserve symptoms, anatomy, diagnoses, procedures, drugs, test names, pathology terms, and uncertainty exactly.
-7) When multiple valid translations exist, choose the one most commonly used in clinical communication in Japan.
-8) Return JSON only:
-{"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"...","ocr_text":"..."}`;
-      }
-
-      async function callTranslate(inputText, scene = "text") {
+      async function callTranslate(inputText) {
         const base = relayUrl.value.trim();
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
-
-        const pickedModel = chooseModelForText(inputText, scene);
-        setModelHint(`当前模型：${pickedModel}`);
 
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
@@ -454,10 +380,17 @@ Rules:
           },
           body: JSON.stringify({
             mode: "text",
-            model: pickedModel,
+            model: model.value.trim() || "gpt-4.1-mini",
             temperature: 0.2,
             input_text: inputText,
-            system_prompt: medicalPromptText()
+            system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
+Rules:
+1) Detect whether the source is Chinese or Japanese.
+2) Translate only into the other language.
+3) Keep meaning exact. Do not add explanations unless needed to disambiguate.
+4) For veterinary and medical contexts, prefer accurate, natural clinic-ready wording.
+5) Return JSON only:
+{"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"..."}`
           })
         });
 
@@ -477,9 +410,6 @@ Rules:
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
 
-        const pickedModel = chooseModelForText("", "ocr");
-        setModelHint(`当前模型：${pickedModel}`);
-
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
         const res = await fetch(url, {
@@ -490,10 +420,16 @@ Rules:
           },
           body: JSON.stringify({
             mode: "image",
-            model: pickedModel,
+            model: model.value.trim() || "gpt-4.1-mini",
             temperature: 0.2,
             input_image: base64DataUrl,
-            system_prompt: medicalPromptImage()
+            system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
+Rules:
+1) OCR the image accurately.
+2) Detect whether the source is Chinese or Japanese.
+3) Translate only into the other language.
+4) Return JSON only:
+{"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"...","ocr_text":"..."}`
           })
         });
 
@@ -507,8 +443,6 @@ Rules:
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
-
-        setModelHint("当前模型：gpt-4o-mini-transcribe → 快模型翻译");
 
         const url = base.endsWith("/") ? base + "transcribe" : base + "/transcribe";
 
@@ -564,7 +498,7 @@ Rules:
               const tr = await callTranscribe(audioBase64);
               setSourceDisplay(tr.text || "");
 
-              const translated = await callTranslate(tr.text || "", "voice");
+              const translated = await callTranslate(tr.text || "");
               const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
 
               setSourceDisplay(translated.cleaned_source || tr.text || "");
@@ -624,20 +558,18 @@ Rules:
       textModeBtn.addEventListener("click", () => {
         setSourceInput("");
         setTarget("……", "ja-JP");
-        setModelHint("当前模型：自动");
       });
 
       srcInput.addEventListener("input", async () => {
         const text = getSourceInputValue();
         if (!text) {
           setTarget("……", "ja-JP");
-          setModelHint("当前模型：自动");
           return;
         }
 
         try {
           setTarget("翻译中…", "ja-JP");
-          const translated = await callTranslate(text, "text");
+          const translated = await callTranslate(text);
           const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
           setTarget(translated.translation || "", tl);
         } catch (err) {
@@ -649,7 +581,6 @@ Rules:
         setSourceDisplay("");
         setTarget("");
         srcInput.value = "";
-        setModelHint("当前模型：自动");
       });
 
       fontMinusBtn.addEventListener("click", () => {
@@ -675,7 +606,6 @@ Rules:
       initSettings();
       setSourceDisplay("");
       setTarget("");
-      setModelHint("当前模型：自动");
     })();
   </script>
 </body>
