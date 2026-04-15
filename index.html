@@ -14,6 +14,8 @@
       --muted:#93c5fd;
       --btn-blue-1:#3b82f6;
       --btn-blue-2:#2563eb;
+      --dst-font-scale:1;
+      --dst-auto-size:32px;
     }
 
     *{
@@ -97,10 +99,12 @@
 
     .actions{
       display:grid;
-      grid-template-columns:repeat(2, 1fr);
+      grid-template-columns:repeat(4, 1fr);
       gap:8px;
-      width:50%;
-      min-width:180px;
+      width:72%;
+      min-width:260px;
+      max-width:420px;
+      margin-left:auto;
     }
 
     .text{
@@ -117,7 +121,7 @@
     }
 
     .dst{
-      font-size:clamp(32px,5.8vw,58px);
+      font-size:calc(var(--dst-auto-size, 32px) * var(--dst-font-scale, 1));
       font-weight:650;
     }
 
@@ -138,6 +142,14 @@
       resize:none;
       outline:none;
       display:none;
+    }
+
+    .hint{
+      font-size:12px;
+      color:#cbd5e1;
+      opacity:.9;
+      margin-top:6px;
+      line-height:1.45;
     }
 
     .sheet{
@@ -217,10 +229,13 @@
           <div id="dstLabel" class="label">翻译结果</div>
           <div class="actions">
             <button id="settingsBtn" class="primary-btn">设置</button>
+            <button id="fontMinusBtn" class="primary-btn">-</button>
+            <button id="fontPlusBtn" class="primary-btn">+</button>
             <button id="speakBtn" class="primary-btn">朗读</button>
           </div>
         </div>
         <div id="dstText" class="text dst placeholder">……</div>
+        <div class="hint" id="modelHint">当前模型：自动</div>
       </section>
     </div>
   </div>
@@ -235,8 +250,16 @@
       <input id="secret" type="password" placeholder="输入你的 relay secret" />
     </div>
     <div class="field">
-      <label>翻译模型</label>
-      <input id="model" placeholder="gpt-4.1-mini" />
+      <label>快速模型（语音 / OCR / 短句）</label>
+      <input id="fastModel" placeholder="gpt-4o-mini" />
+    </div>
+    <div class="field">
+      <label>稳妥模型（复杂句）</label>
+      <input id="smartModel" placeholder="gpt-4.1-mini" />
+    </div>
+    <div class="field">
+      <label>翻译结果字体倍率（0.6 ~ 1.5，1为默认；会先按字数自动缩放）</label>
+      <input id="fontScale" type="number" min="0.6" max="1.5" step="0.1" placeholder="1.0" />
     </div>
     <div class="row">
       <button id="saveBtn" class="primary-btn">保存</button>
@@ -253,41 +276,63 @@
       const textModeBtn = $("#textModeBtn");
       const clearTopBtn = $("#clearTopBtn");
       const settingsBtn = $("#settingsBtn");
+      const fontMinusBtn = $("#fontMinusBtn");
+      const fontPlusBtn = $("#fontPlusBtn");
       const imageInput = $("#imageInput");
 
-      const srcLabel = $("#srcLabel");
       const srcText = $("#srcText");
       const srcInput = $("#srcInput");
 
       const dstText = $("#dstText");
       const speakBtn = $("#speakBtn");
+      const modelHint = $("#modelHint");
 
       const sheet = $("#sheet");
       const relayUrl = $("#relayUrl");
       const secret = $("#secret");
-      const model = $("#model");
+      const fastModel = $("#fastModel");
+      const smartModel = $("#smartModel");
+      const fontScale = $("#fontScale");
       const saveBtn = $("#saveBtn");
       const closeBtn = $("#closeBtn");
 
       let mediaRecorder = null;
       let audioChunks = [];
       let lastTargetLang = "ja-JP";
-      let currentMode = "display"; // display | text-input
 
       function initSettings() {
         relayUrl.value = localStorage.getItem("luna_relay_url") || "";
         secret.value = localStorage.getItem("luna_relay_secret") || "";
-        model.value = localStorage.getItem("luna_model") || "gpt-4.1-mini";
+        fastModel.value = localStorage.getItem("luna_fast_model") || "gpt-4o-mini";
+        smartModel.value = localStorage.getItem("luna_smart_model") || "gpt-4.1-mini";
+        fontScale.value = localStorage.getItem("luna_font_scale") || "1.0";
+        applyFontScale();
       }
 
       function saveSettings() {
         localStorage.setItem("luna_relay_url", relayUrl.value.trim());
         localStorage.setItem("luna_relay_secret", secret.value.trim());
-        localStorage.setItem("luna_model", model.value.trim());
+        localStorage.setItem("luna_fast_model", fastModel.value.trim());
+        localStorage.setItem("luna_smart_model", smartModel.value.trim());
+        localStorage.setItem("luna_font_scale", fontScale.value.trim());
+        applyFontScale();
+      }
+
+      function applyFontScale() {
+        const scale = Number(fontScale.value || "1");
+        const safeScale = Math.min(1.5, Math.max(0.6, scale || 1));
+        document.documentElement.style.setProperty("--dst-font-scale", String(safeScale));
+      }
+
+      function adjustFontScale(delta) {
+        let current = Number(fontScale.value || "1");
+        current = Math.round((current + delta) * 10) / 10;
+        current = Math.min(1.5, Math.max(0.6, current));
+        fontScale.value = current.toFixed(1);
+        saveSettings();
       }
 
       function setSourceDisplay(text) {
-        currentMode = "display";
         srcText.style.display = "block";
         srcInput.style.display = "none";
         srcText.textContent = text || "……";
@@ -295,7 +340,6 @@
       }
 
       function setSourceInput(text = "") {
-        currentMode = "text-input";
         srcText.style.display = "none";
         srcInput.style.display = "block";
         srcInput.value = text;
@@ -310,6 +354,27 @@
         dstText.textContent = text || "……";
         dstText.classList.toggle("placeholder", !text);
         lastTargetLang = lang;
+
+        const len = (text || "").replace(/\s/g, "").length;
+        let autoSize = "32px";
+
+        if (len <= 12) {
+          autoSize = "40px";
+        } else if (len <= 24) {
+          autoSize = "32px";
+        } else if (len <= 40) {
+          autoSize = "26px";
+        } else if (len <= 60) {
+          autoSize = "22px";
+        } else {
+          autoSize = "18px";
+        }
+
+        document.documentElement.style.setProperty("--dst-auto-size", autoSize);
+      }
+
+      function setModelHint(text) {
+        modelHint.textContent = text || "当前模型：自动";
       }
 
       function speak(text, lang) {
@@ -320,11 +385,35 @@
         speechSynthesis.speak(u);
       }
 
-      async function callTranslate(inputText) {
+      function estimateComplexity(text) {
+        if (!text) return false;
+
+        const len = text.length;
+        const punctCount = (text.match(/[，。！？；、,.!?;:：]/g) || []).length;
+        const lineBreaks = (text.match(/\n/g) || []).length;
+        const hasBrackets = /[()（）\[\]【】]/.test(text);
+        const hasMedicalTerms = /甲状腺|肿瘤|切除|穿刺|淋巴|转移|病理|甲状旁腺|麻醉|气管|滤泡癌|囊肿|甲状腺機能|腫瘍|病理|切除|転移|リンパ|麻酔|気管/.test(text);
+
+        return len > 28 || punctCount >= 2 || lineBreaks > 0 || hasBrackets || hasMedicalTerms;
+      }
+
+      function chooseModelForText(text, scene = "text") {
+        const fast = fastModel.value.trim() || "gpt-4o-mini";
+        const smart = smartModel.value.trim() || "gpt-4.1-mini";
+
+        if (scene === "ocr") return fast;
+        if (scene === "voice") return fast;
+        return estimateComplexity(text) ? smart : fast;
+      }
+
+      async function callTranslate(inputText, scene = "text") {
         const base = relayUrl.value.trim();
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
+
+        const pickedModel = chooseModelForText(inputText, scene);
+        setModelHint(`当前模型：${pickedModel}`);
 
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
@@ -336,7 +425,7 @@
           },
           body: JSON.stringify({
             mode: "text",
-            model: model.value.trim() || "gpt-4.1-mini",
+            model: pickedModel,
             temperature: 0.2,
             input_text: inputText,
             system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
@@ -366,6 +455,9 @@ Rules:
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
 
+        const pickedModel = fastModel.value.trim() || "gpt-4o-mini";
+        setModelHint(`当前模型：${pickedModel}`);
+
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
         const res = await fetch(url, {
@@ -376,7 +468,7 @@ Rules:
           },
           body: JSON.stringify({
             mode: "image",
-            model: model.value.trim() || "gpt-4.1-mini",
+            model: pickedModel,
             temperature: 0.2,
             input_image: base64DataUrl,
             system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
@@ -399,6 +491,8 @@ Rules:
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
+
+        setModelHint("当前模型：gpt-4o-mini-transcribe → 快速翻译");
 
         const url = base.endsWith("/") ? base + "transcribe" : base + "/transcribe";
 
@@ -454,7 +548,7 @@ Rules:
               const tr = await callTranscribe(audioBase64);
               setSourceDisplay(tr.text || "");
 
-              const translated = await callTranslate(tr.text || "");
+              const translated = await callTranslate(tr.text || "", "voice");
               const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
 
               setSourceDisplay(translated.cleaned_source || tr.text || "");
@@ -514,18 +608,20 @@ Rules:
       textModeBtn.addEventListener("click", () => {
         setSourceInput("");
         setTarget("……", "ja-JP");
+        setModelHint("当前模型：自动");
       });
 
       srcInput.addEventListener("input", async () => {
         const text = getSourceInputValue();
         if (!text) {
           setTarget("……", "ja-JP");
+          setModelHint("当前模型：自动");
           return;
         }
 
         try {
           setTarget("翻译中…", "ja-JP");
-          const translated = await callTranslate(text);
+          const translated = await callTranslate(text, "text");
           const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
           setTarget(translated.translation || "", tl);
         } catch (err) {
@@ -537,6 +633,15 @@ Rules:
         setSourceDisplay("");
         setTarget("");
         srcInput.value = "";
+        setModelHint("当前模型：自动");
+      });
+
+      fontMinusBtn.addEventListener("click", () => {
+        adjustFontScale(-0.1);
+      });
+
+      fontPlusBtn.addEventListener("click", () => {
+        adjustFontScale(0.1);
       });
 
       speakBtn.addEventListener("click", () => {
@@ -554,6 +659,7 @@ Rules:
       initSettings();
       setSourceDisplay("");
       setTarget("");
+      setModelHint("当前模型：自动");
     })();
   </script>
 </body>
