@@ -57,10 +57,16 @@
       font-weight:800;
       background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));
       box-shadow:0 10px 24px rgba(37,99,235,.22);
+      user-select: none;
     }
 
     .primary-btn.rec{
       background:linear-gradient(180deg,#ef4444,#dc2626);
+    }
+
+    .primary-btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
     }
 
     .panels{
@@ -284,6 +290,13 @@
       let mediaRecorder = null;
       let audioChunks = [];
       let lastTargetLang = "ja-JP";
+      // 新增：请求锁，防止重复点击、重复并发请求
+      let isRequesting = false;
+      // 新增：录音流对象，用于结束后释放麦克风
+      let audioStream = null;
+      // 新增：输入防抖定时器
+      let inputDebounceTimer = null;
+      const DEBOUNCE_DELAY = 600;
 
       function initSettings() {
         relayUrl.value = localStorage.getItem("luna_relay_url") || "";
@@ -341,17 +354,11 @@
         const len = (text || "").replace(/\s/g, "").length;
         let autoSize = "32px";
 
-        if (len <= 12) {
-          autoSize = "40px";
-        } else if (len <= 24) {
-          autoSize = "32px";
-        } else if (len <= 40) {
-          autoSize = "26px";
-        } else if (len <= 60) {
-          autoSize = "22px";
-        } else {
-          autoSize = "18px";
-        }
+        if (len <= 12) autoSize = "40px";
+        else if (len <= 24) autoSize = "32px";
+        else if (len <= 40) autoSize = "26px";
+        else if (len <= 60) autoSize = "22px";
+        else autoSize = "18px";
 
         document.documentElement.style.setProperty("--dst-auto-size", autoSize);
       }
@@ -360,8 +367,19 @@
         if (!text || text === "……" || !("speechSynthesis" in window)) return;
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
-        u.lang = lang || "ja-JP";
+        // 兼容标准语言码，修复朗读语种错误
+        u.lang = lang === "ja-JP" ? "ja-JP" : "zh-CN";
+        u.rate = 1;
+        u.volume = 1;
         speechSynthesis.speak(u);
+      }
+
+      // 统一请求异常处理封装
+      function handleError(msg) {
+        isRequesting = false;
+        recordBtn.disabled = false;
+        setTarget(`错误：${msg}`);
+        console.error("请求异常:", msg);
       }
 
       async function callTranslate(inputText) {
@@ -369,11 +387,13 @@
         const sec = secret.value.trim();
         if (!base) throw new Error("请先填写 Relay URL");
         if (!sec) throw new Error("请先填写访问密钥");
+        if (!inputText) throw new Error("无待翻译文本");
 
         const url = base.endsWith("/") ? base + "translate" : base + "/translate";
 
         const res = await fetch(url, {
           method: "POST",
+          signal: AbortSignal.timeout(25000), // 新增接口超时限制25秒
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${sec}`
@@ -381,27 +401,31 @@
           body: JSON.stringify({
             mode: "text",
             model: model.value.trim() || "gpt-4.1-mini",
-            temperature: 0.2,
+            temperature: 0.1, // 降低温度，翻译更精准，减少胡编乱造
             input_text: inputText,
-            system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
-Rules:
-1) Detect whether the source is Chinese or Japanese.
-2) Translate only into the other language.
-3) Keep meaning exact. Do not add explanations unless needed to disambiguate.
-4) For veterinary and medical contexts, prefer accurate, natural clinic-ready wording.
-5) Return JSON only:
-{"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"..."}`
+            system_prompt: `严格中日互译专业医疗口语翻译器，仅执行翻译，**绝对禁止**添加解释、备注、拓展、额外对话、礼貌用语。
+规则严格强制：
+1. 自动识别输入文本是简体中文 或 日语
+2. 只翻译成另外一门语言，不双向重复、不新增内容
+3. 医疗、日常口语用词精准自然，不生硬机翻
+4. 仅返回固定JSON格式，**除此之外绝对不能输出任何字符**
+固定返回格式：
+{"source_language":"zh"或"ja","target_language":"ja"或"zh","translation":"翻译结果","cleaned_source":"纯净原文去除多余符号"}`
           })
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (!res.ok) throw new Error(data.error || `接口异常 ${res.status}`);
 
-        if (data.translation) return data;
-        if (data.output_text) {
-          try { return JSON.parse(data.output_text); } catch(e) {}
-        }
-        return { translation: JSON.stringify(data) };
+        // 兼容后端多种返回字段，全容错读取
+        let result = {};
+        result.source_language = data.source_language;
+        result.target_language = data.target_language;
+        result.translation = data.translation || data.output_text || "";
+        result.cleaned_source = data.cleaned_source || inputText;
+
+        if (!result.translation) throw new Error("接口未返回有效翻译内容");
+        return result;
       }
 
       async function callImage(base64DataUrl) {
@@ -414,6 +438,7 @@ Rules:
 
         const res = await fetch(url, {
           method: "POST",
+          signal: AbortSignal.timeout(30000),
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${sec}`
@@ -421,15 +446,13 @@ Rules:
           body: JSON.stringify({
             mode: "image",
             model: model.value.trim() || "gpt-4.1-mini",
-            temperature: 0.2,
+            temperature: 0.1,
             input_image: base64DataUrl,
-            system_prompt: `You are a medical-context face-to-face interpreter for simplified Chinese and Japanese.
-Rules:
-1) OCR the image accurately.
-2) Detect whether the source is Chinese or Japanese.
-3) Translate only into the other language.
-4) Return JSON only:
-{"source_language":"zh" or "ja","target_language":"ja" or "zh","translation":"...","cleaned_source":"...","ocr_text":"..."}`
+            system_prompt: `精准图片文字OCR识别+中日医疗互译，仅翻译无额外内容。
+1. 高精度提取图片内中日文字
+2. 自动识别语种，仅翻译成另一门语言
+3. 只返回固定JSON，无多余字符
+格式：{"source_language":"zh"/"ja","target_language":"ja"/"zh","translation":"结果","cleaned_source":"纯净原文","ocr_text":"完整识别文字"}`
           })
         });
 
@@ -448,6 +471,7 @@ Rules:
 
         const res = await fetch(url, {
           method: "POST",
+          signal: AbortSignal.timeout(25000),
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${sec}`
@@ -458,116 +482,107 @@ Rules:
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        return data;
+        if (!res.ok) throw new Error(data.error || `语音识别接口异常 ${res.status}`);
+
+        // 兼容后端所有语音返回字段，全方位容错，解决识别为空问题
+        const voiceText = data.text || data.result || data.transcript || data.content || "";
+        if (!voiceText) throw new Error("未识别到有效语音内容，请重新说话");
+        return { text: voiceText };
       }
 
       function blobToBase64(blob) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
-            const result = reader.result.split(",")[1];
-            resolve(result);
+            const full = reader.result;
+            const base64 = full.split(",")[1];
+            if(!base64) reject(new Error("音频转码失败"));
+            resolve(base64);
           };
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
       }
 
-async function startRecord() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      async function startRecord() {
+        if (isRequesting) return;
+        try {
+          // 优先释放旧流，解决麦克风占用卡死
+          if(audioStream) {
+            audioStream.getTracks().forEach(t => t.stop());
+          }
 
-    audioChunks = [];
+          // 兼容全浏览器录音格式，优先通用mp3/webm，适配绝大多数中转语音接口
+          const mimeTypes = [
+            'audio/mp3',
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/ogg'
+          ];
+          let recordType = 'audio/webm';
+          // 自动检测浏览器支持的最佳录音格式
+          for(let type of mimeTypes) {
+            if(MediaRecorder.isTypeSupported(type)) {
+              recordType = type;
+              break;
+            }
+          }
 
-    // ✅ 压缩音频（关键）
-    mediaRecorder = new MediaRecorder(stream, {
-      mimeType: "audio/webm;codecs=opus",
-      audioBitsPerSecond: 16000
-    });
+          audioStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: true,
+            video: false
+          });
+          audioChunks = [];
+          mediaRecorder = new MediaRecorder(audioStream, { mimeType: recordType });
 
-    mediaRecorder.ondataavailable = e => {
-      if (e.data.size > 0) audioChunks.push(e.data);
-    };
+          mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
 
-    // =========================
-    // ✅ 静音检测核心
-    // =========================
-    const audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(stream);
-    const analyser = audioContext.createAnalyser();
+          mediaRecorder.onstop = async () => {
+            // 录音结束立即释放麦克风
+            audioStream.getTracks().forEach(t => t.stop());
+            
+            recordBtn.classList.remove("rec");
+            recordBtn.textContent = "语音";
+            isRequesting = true;
+            recordBtn.disabled = true;
 
-    analyser.fftSize = 2048;
-    source.connect(analyser);
+            try {
+              const blob = new Blob(audioChunks, { type: recordType });
+              if(blob.size < 500) throw new Error("录音内容过短，请重新录制");
+              
+              const audioBase64 = await blobToBase64(blob);
 
-    const dataArray = new Uint8Array(analyser.fftSize);
+              setSourceDisplay("语音识别中…");
+              setTarget("翻译中…", "ja-JP");
 
-    let silenceStart = null;
-    const silenceThreshold = 8;   // 👉 越小越敏感（推荐 5~10）
-    const silenceDelay = 1200;    // 👉 静音多久停止（毫秒）
+              // 语音识别
+              const tr = await callTranscribe(audioBase64);
+              setSourceDisplay(tr.text);
 
-    function detectSilence() {
-      analyser.getByteTimeDomainData(dataArray);
+              // 紧接着自动翻译
+              const translated = await callTranslate(tr.text);
+              const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
 
-      let max = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const v = Math.abs(dataArray[i] - 128);
-        if (v > max) max = v;
-      }
+              setSourceDisplay(translated.cleaned_source || tr.text);
+              setTarget(translated.translation, tl);
 
-      if (max < silenceThreshold) {
-        if (!silenceStart) {
-          silenceStart = Date.now();
-        } else if (Date.now() - silenceStart > silenceDelay) {
-          // 👉 自动停止
-          stopRecord();
-          return;
+            } catch (err) {
+              handleError(err.message);
+            } finally {
+              isRequesting = false;
+              recordBtn.disabled = false;
+            }
+          };
+
+          mediaRecorder.start(100); // 分片采集，防止大音频截断
+          recordBtn.classList.add("rec");
+          recordBtn.textContent = "停止";
+        } catch (err) {
+          handleError("麦克风权限/设备异常：" + err.message);
         }
-      } else {
-        silenceStart = null;
       }
-
-      requestAnimationFrame(detectSilence);
-    }
-
-    // =========================
-
-    mediaRecorder.onstop = async () => {
-      try {
-        recordBtn.classList.remove("rec");
-        recordBtn.textContent = "语音";
-
-        const blob = new Blob(audioChunks, { type: "audio/webm" });
-        const audioBase64 = await blobToBase64(blob);
-
-        setSourceDisplay("识别中…");
-        setTarget("翻译中…");
-
-        const tr = await callTranscribe(audioBase64);
-        setSourceDisplay(tr.text || "");
-
-        const translated = await callTranslate(tr.text || "", "voice");
-        const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
-
-        setTarget(translated.translation || "", tl);
-
-      } catch (err) {
-        setTarget("错误：" + err.message);
-      }
-    };
-
-    mediaRecorder.start();
-
-    recordBtn.classList.add("rec");
-    recordBtn.textContent = "说话中…";
-
-    // 👉 启动静音检测
-    detectSilence();
-
-  } catch (err) {
-    setTarget("无法录音：" + err.message);
-  }
-}
 
       function stopRecord() {
         if (mediaRecorder && mediaRecorder.state === "recording") {
@@ -576,6 +591,7 @@ async function startRecord() {
       }
 
       recordBtn.addEventListener("click", () => {
+        if (isRequesting) return;
         if (mediaRecorder && mediaRecorder.state === "recording") {
           stopRecord();
         } else {
@@ -586,8 +602,11 @@ async function startRecord() {
       cameraBtn.addEventListener("click", () => imageInput.click());
 
       imageInput.addEventListener("change", async (ev) => {
+        if(isRequesting) return;
         const file = ev.target.files && ev.target.files[0];
         if (!file) return;
+        isRequesting = true;
+        recordBtn.disabled = true;
 
         const reader = new FileReader();
         reader.onload = async () => {
@@ -601,7 +620,10 @@ async function startRecord() {
             setSourceDisplay(r.cleaned_source || r.ocr_text || "识别完成");
             setTarget(r.translation || "", tl);
           } catch (err) {
-            setTarget("错误：" + err.message);
+            handleError(err.message);
+          } finally {
+            isRequesting = false;
+            recordBtn.disabled = false;
           }
         };
         reader.readAsDataURL(file);
@@ -613,27 +635,41 @@ async function startRecord() {
         setTarget("……", "ja-JP");
       });
 
+      // 文本输入增加防抖，防止频繁请求接口
       srcInput.addEventListener("input", async () => {
+        clearTimeout(inputDebounceTimer);
         const text = getSourceInputValue();
         if (!text) {
           setTarget("……", "ja-JP");
           return;
         }
-
-        try {
-          setTarget("翻译中…", "ja-JP");
-          const translated = await callTranslate(text);
-          const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
-          setTarget(translated.translation || "", tl);
-        } catch (err) {
-          setTarget("错误：" + err.message);
-        }
+        setTarget("翻译中…", "ja-JP");
+        
+        inputDebounceTimer = setTimeout(async () => {
+          if(isRequesting) return;
+          isRequesting = true;
+          try {
+            const translated = await callTranslate(text);
+            const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
+            setTarget(translated.translation || "", tl);
+          } catch (err) {
+            setTarget("错误：" + err.message);
+          } finally {
+            isRequesting = false;
+          }
+        }, DEBOUNCE_DELAY);
       });
 
       clearTopBtn.addEventListener("click", () => {
+        clearTimeout(inputDebounceTimer);
+        isRequesting = false;
         setSourceDisplay("");
         setTarget("");
         srcInput.value = "";
+        // 额外清空录音状态
+        if(audioStream) audioStream.getTracks().forEach(t=>t.stop());
+        recordBtn.classList.remove("rec");
+        recordBtn.textContent = "语音";
       });
 
       fontMinusBtn.addEventListener("click", () => {
@@ -653,7 +689,12 @@ async function startRecord() {
       saveBtn.addEventListener("click", () => {
         saveSettings();
         sheet.classList.remove("show");
-        alert("已保存");
+        alert("配置已保存");
+      });
+
+      // 页面销毁/关闭时释放麦克风
+      window.addEventListener("beforeunload", ()=>{
+        if(audioStream) audioStream.getTracks().forEach(t=>t.stop());
       });
 
       initSettings();
