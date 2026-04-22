@@ -474,47 +474,100 @@ Rules:
         });
       }
 
-      async function startRecord() {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          audioChunks = [];
-          mediaRecorder = new MediaRecorder(stream);
+async function startRecord() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-          mediaRecorder.ondataavailable = e => {
-            if (e.data.size > 0) audioChunks.push(e.data);
-          };
+    audioChunks = [];
 
-          mediaRecorder.onstop = async () => {
-            try {
-              recordBtn.classList.remove("rec");
-              recordBtn.textContent = "语音";
+    // ✅ 压缩音频（关键）
+    mediaRecorder = new MediaRecorder(stream, {
+      mimeType: "audio/webm;codecs=opus",
+      audioBitsPerSecond: 16000
+    });
 
-              const blob = new Blob(audioChunks, { type: "audio/webm" });
-              const audioBase64 = await blobToBase64(blob);
+    mediaRecorder.ondataavailable = e => {
+      if (e.data.size > 0) audioChunks.push(e.data);
+    };
 
-              setSourceDisplay("语音识别中…");
-              setTarget("翻译中…", "ja-JP");
+    // =========================
+    // ✅ 静音检测核心
+    // =========================
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
 
-              const tr = await callTranscribe(audioBase64);
-              setSourceDisplay(tr.text || "");
+    analyser.fftSize = 2048;
+    source.connect(analyser);
 
-              const translated = await callTranslate(tr.text || "");
-              const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
+    const dataArray = new Uint8Array(analyser.fftSize);
 
-              setSourceDisplay(translated.cleaned_source || tr.text || "");
-              setTarget(translated.translation || "", tl);
-            } catch (err) {
-              setTarget("错误：" + err.message);
-            }
-          };
+    let silenceStart = null;
+    const silenceThreshold = 8;   // 👉 越小越敏感（推荐 5~10）
+    const silenceDelay = 1200;    // 👉 静音多久停止（毫秒）
 
-          mediaRecorder.start();
-          recordBtn.classList.add("rec");
-          recordBtn.textContent = "停止";
-        } catch (err) {
-          setTarget("无法录音：" + err.message);
-        }
+    function detectSilence() {
+      analyser.getByteTimeDomainData(dataArray);
+
+      let max = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = Math.abs(dataArray[i] - 128);
+        if (v > max) max = v;
       }
+
+      if (max < silenceThreshold) {
+        if (!silenceStart) {
+          silenceStart = Date.now();
+        } else if (Date.now() - silenceStart > silenceDelay) {
+          // 👉 自动停止
+          stopRecord();
+          return;
+        }
+      } else {
+        silenceStart = null;
+      }
+
+      requestAnimationFrame(detectSilence);
+    }
+
+    // =========================
+
+    mediaRecorder.onstop = async () => {
+      try {
+        recordBtn.classList.remove("rec");
+        recordBtn.textContent = "语音";
+
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
+        const audioBase64 = await blobToBase64(blob);
+
+        setSourceDisplay("识别中…");
+        setTarget("翻译中…");
+
+        const tr = await callTranscribe(audioBase64);
+        setSourceDisplay(tr.text || "");
+
+        const translated = await callTranslate(tr.text || "", "voice");
+        const tl = translated.target_language === "ja" ? "ja-JP" : "zh-CN";
+
+        setTarget(translated.translation || "", tl);
+
+      } catch (err) {
+        setTarget("错误：" + err.message);
+      }
+    };
+
+    mediaRecorder.start();
+
+    recordBtn.classList.add("rec");
+    recordBtn.textContent = "说话中…";
+
+    // 👉 启动静音检测
+    detectSilence();
+
+  } catch (err) {
+    setTarget("无法录音：" + err.message);
+  }
+}
 
       function stopRecord() {
         if (mediaRecorder && mediaRecorder.state === "recording") {
